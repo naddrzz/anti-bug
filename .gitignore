@@ -1,0 +1,22 @@
+# Ledger workspace written by the anti-bug skill when it runs against a repo.
+# Findings are working artifacts, not source - keep them out of version control.
+# (anti-bug-review writes its workspace OUTSIDE the repo by design, so there is
+# nothing to ignore for it here - and a pattern like *-review/ would silently
+# swallow the anti-bug-review/ skill folder itself.)
+.anti-bug/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
