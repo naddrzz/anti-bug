@@ -93,7 +93,7 @@ TEXT_EXT = set(LANG_BY_EXT) | {".json", ".yml", ".yaml", ".toml", ".ini", ".env"
 
 def walk(root: Path):
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".git")]
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
         for fn in filenames:
             yield Path(dirpath) / fn
 
@@ -147,7 +147,7 @@ def main():
             except OSError:
                 pass
 
-        if ext in TEXT_EXT and len(risks) < args.max_risk * 4:
+        if (ext in TEXT_EXT or p.name.startswith(".env")) and len(risks) < args.max_risk * 4:
             try:
                 if p.stat().st_size > 2_000_000:
                     continue
