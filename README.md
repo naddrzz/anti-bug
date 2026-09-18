@@ -279,6 +279,7 @@ Preprints are marked as such in the reference file.
 Issues and pull requests are welcome. Two things make a contribution easy to accept:
 
 - **New detection patterns** belong in `references/detection-playbook.md` or `references/business-logic.md`, with a short note on why the pattern indicates a real defect rather than a style preference.
+- **Run `python validate-skills.py` before opening a PR.** A `SKILL.md` with broken frontmatter is silently skipped by every loader — it renders fine on GitHub and simply never loads. CI runs this on every push.
 - **New claims in the skill body need a source.** The point of this repo is that the guidance is grounded; an unsourced rule is the thing it is built to avoid.
 
 If you run these skills on a real codebase and they miss something or cry wolf, that is the most useful issue you can file — include what happened and what you expected.
