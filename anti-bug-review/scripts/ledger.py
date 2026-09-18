@@ -31,6 +31,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -96,14 +97,27 @@ def load(a) -> tuple[dict, Path]:
     data = json.loads(p.read_text(encoding="utf-8"))
     for k in ("rules", "env", "findings", "questions", "notes", "gaps"):
         data.setdefault(k, [])
+    for f in data["findings"]:
+        f["status"] = effective_status(data, f)
     return data, p
 
 
 def save(data: dict, p: Path) -> None:
-    p.parent.mkdir(parents=True, exist_ok=True)
     data["updated"] = now()
-    p.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n",
-                 encoding="utf-8")
+    payload = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(prefix=f".{p.name}.", suffix=".tmp",
+                                dir=p.parent)
+    os.close(fd)
+    temp = Path(name)
+    try:
+        with temp.open("w", encoding="utf-8", newline="\n") as fh:
+            fh.write(payload)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(temp, p)
+    finally:
+        temp.unlink(missing_ok=True)
 
 
 def next_id(items: list, prefix: str) -> str:
@@ -188,9 +202,9 @@ def derive_status(claimed: str, repro: str | None, evidence: str | None):
     """
     if claimed == "withdrawn":
         return claimed, None
-    if repro:
+    if (repro or "").strip():
         return claimed, None
-    if evidence:
+    if (evidence or "").strip():
         if claimed == "reproduced":
             return "traced", ("was downgraded to 'traced': 'reproduced' means "
                               "a command or test with real output, recorded "
@@ -202,6 +216,18 @@ def derive_status(claimed: str, repro: str | None, evidence: str | None):
                               f"Rule 1: unproven items go in Questions, not "
                               f"the findings table.")
     return claimed, None
+
+
+def effective_status(data: dict, finding: dict) -> str:
+    status, _ = derive_status(finding["status"], finding.get("repro"), finding.get("evidence"))
+    if status not in ("reproduced", "traced"):
+        return status
+    rid = finding.get("rule")
+    rule = get_rule(data, rid) if rid else None
+    if ((finding.get("category") == "business-logic" and not rid)
+            or (rid and (rule is None or rule["confidence"] != "stated"))):
+        return "unverified"
+    return status
 
 
 def cmd_add(a):
@@ -240,6 +266,8 @@ def cmd_add(a):
         "occurrences": [s.strip() for s in (a.occurrences or "").split(",") if s.strip()],
         "notes": a.notes or "", "created": now(),
     })
+    f = d["findings"][-1]
+    f["status"] = effective_status(d, f)
     save(d, p)
     for w in warn:
         print(f"  warning: {w}", file=sys.stderr)
@@ -272,6 +300,7 @@ def cmd_set(a):
     if why:
         print(f"  warning: {f['id']} {why}", file=sys.stderr)
     f["status"] = status
+    f["status"] = effective_status(d, f)
     f["updated"] = now()
     save(d, p)
     print(f"{f['id']} -> {f['status']}")
@@ -404,7 +433,8 @@ def cmd_stats(a):
 
 def cmd_report(a):
     d, _ = load(a)
-    fs = [f for f in d["findings"] if f["status"] != "withdrawn"]
+    fs = [f for f in d["findings"] if f["status"] in ("reproduced", "traced")]
+    uncertain = [f for f in d["findings"] if f["status"] == "unverified"]
     o = []
     w = o.append
 
@@ -413,7 +443,7 @@ def cmd_report(a):
     w(f"- Repository: `{d.get('repo','')}`")
     w(f"- Review started: {d.get('created','')}")
     w(f"- Last updated: {d.get('updated','')}")
-    w("- Mode: **read-only** - no file in the repository was modified")
+    w("- Mode: **read-only** - verify repository changes using the Integrity section below")
     w("")
 
     counts = {s: sum(1 for f in fs if f["severity"] == s) for s in SEVERITIES}
@@ -424,7 +454,7 @@ def cmd_report(a):
     w("")
     w(f"{len(fs)} findings: "
       + ", ".join(f"{counts[s]} {s}" for s in SEVERITIES if counts[s])
-      + f". {len(d['questions'])} open questions, {len(d['notes'])} observations, "
+      + f". {len(d['questions']) + len(uncertain)} open questions, {len(d['notes'])} observations, "
       + f"{len(d['gaps'])} areas not assessed.")
     w("")
     n_repro = sum(1 for f in fs if f["status"] == "reproduced")
@@ -523,13 +553,19 @@ def cmd_report(a):
                 w(f"- `{s}`")
             w("")
 
-    if d["questions"]:
+    if d["questions"] or uncertain:
         w("## Questions")
         w("")
         w("Unproven, or resting on a rule that was inferred rather than "
           "stated. These need an answer from someone who knows the intent; "
           "they are not defects yet.")
         w("")
+        for f in _sorted(uncertain):
+            w(f"- **{f['id']}** (`{f['location']}`) - {f['title']}: "
+              "can the evidence and any cited business rule be confirmed?")
+            for key in ("rule", "repro", "evidence", "notes"):
+                if f.get(key):
+                    w(f"  - {key}: {md(f[key])}")
         for q in d["questions"]:
             w(f"- **{q['id']}**"
               + (f" (`{q['about']}`)" if q.get("about") else "")

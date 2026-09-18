@@ -32,6 +32,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -78,16 +79,28 @@ def load() -> dict:
     data.setdefault("rules", [])
     data.setdefault("baseline", [])
     data.setdefault("findings", [])
+    for f in data["findings"]:
+        f["status"] = effective_status(data, f)
     return data
 
 
 def save(data: dict) -> None:
     p = ledger_path()
-    p.parent.mkdir(parents=True, exist_ok=True)
     data["updated"] = now()
-    with p.open("w", encoding="utf-8") as fh:
-        json.dump(data, fh, indent=2, ensure_ascii=False)
-        fh.write("\n")
+    payload = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(prefix=f".{p.name}.", suffix=".tmp",
+                                dir=p.parent)
+    os.close(fd)
+    temp = Path(name)
+    try:
+        with temp.open("w", encoding="utf-8", newline="\n") as fh:
+            fh.write(payload)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(temp, p)
+    finally:
+        temp.unlink(missing_ok=True)
 
 
 def next_id(items: list, prefix: str) -> str:
@@ -124,6 +137,20 @@ def get_rule(data: dict, rid: str):
         if norm_id(r["id"]) == rid:
             return r
     return None
+
+
+def effective_status(data: dict, finding: dict) -> str:
+    status = finding["status"]
+    if status not in ("confirmed", "fixed"):
+        return status
+    rid = finding.get("rule")
+    rule = get_rule(data, rid) if rid else None
+    if ((finding.get("category") == "business-logic" and not rid)
+            or (rid and (rule is None or rule["confidence"] != "stated"))):
+        return "needs-decision"
+    if not any((finding.get(k) or "").strip() for k in ("repro", "evidence")):
+        return "suspected"
+    return status
 
 
 # ---------------------------------------------------------------- commands
@@ -210,6 +237,8 @@ def cmd_add(a):
         "impact": a.impact or "", "fix": "", "fix_commit": "",
         "tests": [], "attempts": [], "notes": "", "created": now(),
     })
+    f = d["findings"][-1]
+    f["status"] = effective_status(d, f)
     save(d)
     for w in warn:
         print(f"  warning: {w}", file=sys.stderr)
@@ -271,6 +300,7 @@ def cmd_set(a):
         print(f"  warning: {f['id']} marked fixed with no test recorded. "
               f"Rule 3: a fix without a failing-then-passing test is unproven.",
               file=sys.stderr)
+    f["status"] = effective_status(d, f)
     f["updated"] = now()
     save(d)
     print(f"{f['id']} -> {f['status']}")

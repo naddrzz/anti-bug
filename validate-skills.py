@@ -94,9 +94,9 @@ def check(path: Path) -> list[str]:
 
 def main() -> int:
     root = Path(__file__).parent
-    files = sorted(root.glob("skills/*/SKILL.md"))
+    files = sorted(set(root.glob("*/SKILL.md")) | set(root.glob("skills/*/SKILL.md")))
     if not files:
-        print("No skills found under skills/*/SKILL.md", file=sys.stderr)
+        print("No skills found under */SKILL.md or skills/*/SKILL.md", file=sys.stderr)
         return 1
 
     if not HAVE_YAML:

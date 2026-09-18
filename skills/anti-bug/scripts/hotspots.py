@@ -37,14 +37,14 @@ SKIP = ("node_modules/", "vendor/", "dist/", "build/", ".min.", "package-lock",
 def git(root: Path, *args: str) -> str:
     try:
         r = subprocess.run(["git", "-C", str(root), *args],
-                           capture_output=True, text=True, timeout=120)
+                           capture_output=True, timeout=120)
     except FileNotFoundError:
         sys.exit("git not found on PATH.")
     except subprocess.TimeoutExpired:
         sys.exit("git timed out - try a shorter --since window.")
     if r.returncode != 0:
-        sys.exit(f"git failed: {r.stderr.strip()[:300]}")
-    return r.stdout
+        sys.exit(f"git failed: {r.stderr.decode('utf-8', errors='replace').strip()[:300]}")
+    return r.stdout.decode("utf-8", errors="surrogateescape")
 
 
 def main():
@@ -67,27 +67,29 @@ def main():
     fix_words = tuple(w.strip().lower() for w in a.fix_words.split(",")
                       if w.strip()) if a.fix_words else FIX_WORDS
 
-    log = git(root, "log", f"--since={a.since}", "--name-only",
-              "--pretty=format:%x00%H%x1f%an%x1f%s")
+    log = git(root, "log", f"--since={a.since}", "--name-only", "-z",
+              "--pretty=format:%x00%H%x00%an%x00%s%x00")
 
     churn, fixes, authors = Counter(), Counter(), defaultdict(set)
     fix_commits, total_commits = 0, 0
 
-    for block in log.split("\x00"):
-        block = block.strip("\n")
-        if not block:
+    tokens = iter(log.split("\x00"))
+    for commit in tokens:
+        if not commit:
             continue
-        head, _, body = block.partition("\n")
-        parts = head.split("\x1f")
-        if len(parts) < 3:
-            continue
-        _, author, subject = parts[0], parts[1], parts[2]
+        author = next(tokens, "")
+        subject = next(tokens, "")
         total_commits += 1
         is_fix = any(w in subject.lower() for w in fix_words)
         if is_fix:
             fix_commits += 1
-        for line in body.splitlines():
-            f = line.strip()
+        first_file = True
+        for f in tokens:
+            if not f:
+                break
+            if first_file:
+                f = f.removeprefix("\n")
+                first_file = False
             if not f or any(s in f for s in SKIP):
                 continue
             if Path(f).suffix.lower() not in CODE_EXT:
