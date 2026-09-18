@@ -63,7 +63,9 @@ def manifest_path(repo: Path, out: str | None) -> Path:
 
 
 def walk(root: Path):
-    for dirpath, dirnames, filenames in os.walk(root):
+    def onerror(error):
+        sys.exit(f"UNVERIFIED - cannot traverse repository: {error}")
+    for dirpath, dirnames, filenames in os.walk(root, onerror=onerror):
         dirnames[:] = [d for d in dirnames if d not in VOLATILE]
         for fn in filenames:
             yield Path(dirpath) / fn
@@ -103,8 +105,11 @@ def cmd_snapshot(a):
     if not repo.is_dir():
         sys.exit(f"Not a directory: {repo}")
     ws = workspace(repo, a.out)
-    ws.mkdir(parents=True, exist_ok=True)
     mp = manifest_path(repo, a.out)
+    if inside(ws, repo) or inside(mp.resolve(), repo):
+        sys.exit(f"Refusing to write the integrity workspace inside the repository ({ws}). "
+                 "Pass --out with a path outside the repository.")
+    ws.mkdir(parents=True, exist_ok=True)
 
     files = scan(repo)
     mp.write_text(json.dumps({
@@ -114,26 +119,41 @@ def cmd_snapshot(a):
 
     print(f"Snapshot: {len(files)} files under {repo}")
     print(f"Manifest: {mp}")
-    if inside(ws, repo):
-        print("  WARNING: the workspace is inside the repository. Move it out "
-              "with --out, or the review writes into what it is measuring.",
-              file=sys.stderr)
+    if any(f["sha256"] in ("unreadable", "skipped-large")
+           or f.get("bytes", -1) < 0 for f in files.values()):
+        print("UNVERIFIED - snapshot includes files without content hashes; "
+              "check cannot certify these files.", file=sys.stderr)
 
 
 def cmd_check(a):
     repo = Path(a.repo).resolve()
+    if not repo.is_dir():
+        sys.exit(f"Not a directory: {repo}")
     mp = manifest_path(repo, a.out)
     if not mp.exists():
         sys.exit(f"No snapshot at {mp}. Run `integrity.py snapshot` first - "
                  f"without one, 'nothing was changed' is unprovable.")
 
-    before = json.loads(mp.read_text(encoding="utf-8"))["files"]
+    snapshot = json.loads(mp.read_text(encoding="utf-8"))
+    if (not snapshot.get("repo")
+            or Path(snapshot["repo"]).resolve() != repo):
+        sys.exit("Snapshot belongs to a different repository; take a new "
+                 "snapshot.")
+    before = snapshot["files"]
     after = scan(repo)
+
+    incomplete = sorted({name for files in (before, after)
+                         for name, info in files.items()
+                         if info.get("sha256") in ("unreadable", "skipped-large")
+                         or info.get("bytes", -1) < 0})
+    if incomplete:
+        sys.exit("UNVERIFIED - files could not be hashed: "
+                 + ", ".join(incomplete))
 
     added = sorted(set(after) - set(before))
     removed = sorted(set(before) - set(after))
     modified = sorted(k for k in set(before) & set(after)
-                      if before[k]["sha256"] != after[k]["sha256"])
+                      if before[k] != after[k])
 
     total = len(added) + len(removed) + len(modified)
     print(f"Integrity check against {mp}")
@@ -141,10 +161,13 @@ def cmd_check(a):
     print(f"  added         : {len(added)}")
     print(f"  removed       : {len(removed)}")
     print(f"  modified      : {len(modified)}")
+    print("  excluded directories: " + ", ".join(sorted(VOLATILE)))
+    print("  symbolic-link directories are not traversed")
     print()
 
     if total == 0:
-        print("CLEAN - the repository is byte-identical to the snapshot.")
+        print("CLEAN - scanned files are byte-identical to the snapshot; "
+              "excluded paths are not verified.")
         print("Paste this block into the report's integrity section.")
         return
 
