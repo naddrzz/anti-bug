@@ -53,25 +53,45 @@ They share the detection playbook, the business-logic reference, the security wo
 
 ## Install
 
-These are [Agent Skills](https://code.claude.com/docs/en/skills) — a `SKILL.md` with YAML frontmatter plus bundled references and scripts. The format is plain files, so any agent or harness that can read a skill directory works; nothing here is tied to one vendor.
+These are [Agent Skills](https://github.com/vercel-labs/skills) — a `SKILL.md` with YAML frontmatter plus bundled references and scripts. The format is plain files, so any agent that reads a skill directory works; nothing here is tied to one vendor.
+
+```bash
+npx skills add naddrzz/anti-bug
+```
+
+That detects which coding agents you have installed and asks which skills to place where. To skip the prompts:
+
+```bash
+# both skills, every detected agent
+npx skills add naddrzz/anti-bug --all -y
+
+# one skill, one agent, user-wide instead of project-scoped
+npx skills add naddrzz/anti-bug --skill anti-bug -a claude-code -g -y
+```
+
+Try one without installing anything:
+
+```bash
+npx skills use naddrzz/anti-bug@anti-bug-review
+```
+
+<details>
+<summary><strong>Installing by hand instead</strong></summary>
+
+The skills are ordinary directories, so copying them works just as well:
 
 ```bash
 git clone https://github.com/naddrzz/anti-bug.git
+cp -r anti-bug/skills/anti-bug anti-bug/skills/anti-bug-review  <target>/skills/
 ```
 
-Then put the skill folders where your agent looks for skills. Common locations:
+Put them wherever your agent looks for skills — commonly `.claude/skills/` or `~/.claude/skills/` for a project or user scope, and `.agents/skills/` for others.
 
-```bash
-# project-scoped
-cp -r anti-bug anti-bug-review  <your-project>/.claude/skills/
+If your agent has no skill loader at all, point it at the file directly. The whole workflow is in `SKILL.md` and degrades gracefully:
 
-# or user-scoped
-cp -r anti-bug anti-bug-review  ~/.claude/skills/
-```
+> Read `skills/anti-bug/SKILL.md` and follow it against this repository.
 
-If your agent has no skill loader, point it at the file directly — the whole workflow is in `anti-bug/SKILL.md`, and it degrades gracefully:
-
-> Read `anti-bug/SKILL.md` and follow it against this repository.
+</details>
 
 **Requirements:** Python 3.9+ for the three helper scripts. Standard library only — no install step, no dependencies.
 
@@ -171,22 +191,23 @@ A documented case for BL-5: a $20,000 discount redeemed ~30 times in parallel pr
 ## What is in the box
 
 ```
-anti-bug/                     anti-bug-review/
-├── SKILL.md                  ├── SKILL.md
-├── references/               ├── references/
-│   ├── business-logic.md     │   ├── business-logic.md
-│   ├── detection-playbook.md │   ├── detection-playbook.md
-│   ├── security-audit.md     │   ├── security-audit.md
-│   ├── toolchains.md         │   ├── toolchains.md
-│   └── research-basis.md     │   └── research-basis.md
-├── scripts/                  ├── scripts/
-│   ├── recon.py              │   ├── recon.py
-│   ├── hotspots.py           │   ├── hotspots.py
-│   └── ledger.py             │   ├── ledger.py
-└── assets/                   │   └── integrity.py
-    ├── finding-template.md   └── assets/
-    └── report-template.md        ├── finding-template.md
-                                  └── report-template.md
+skills/
+├── anti-bug/                     └── anti-bug-review/
+│   ├── SKILL.md                      ├── SKILL.md
+│   ├── references/                   ├── references/
+│   │   ├── business-logic.md         │   ├── business-logic.md
+│   │   ├── detection-playbook.md     │   ├── detection-playbook.md
+│   │   ├── security-audit.md         │   ├── security-audit.md
+│   │   ├── toolchains.md             │   ├── toolchains.md
+│   │   └── research-basis.md         │   └── research-basis.md
+│   ├── scripts/                      ├── scripts/
+│   │   ├── recon.py                  │   ├── recon.py
+│   │   ├── hotspots.py               │   ├── hotspots.py
+│   │   └── ledger.py                 │   ├── ledger.py
+│   └── assets/                       │   └── integrity.py
+│       ├── finding-template.md       └── assets/
+│       └── report-template.md            ├── finding-template.md
+│                                         └── report-template.md
 ```
 
 ### Scripts
